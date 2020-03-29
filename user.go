@@ -84,7 +84,7 @@ func GetUserInStorage(ctx context.Context, userID string) (*User, bool, error) {
 	defer client.Close()
 
 	key := datastore.NameKey(UserKind, userID, nil)
-	u := &User{}
+	var u User
 	err = client.Get(ctx, key, &u)
 	if err != nil {
 		if err == datastore.ErrNoSuchEntity {
@@ -92,7 +92,7 @@ func GetUserInStorage(ctx context.Context, userID string) (*User, bool, error) {
 		}
 		return nil, false, err
 	}
-	return u, true, nil // userID does exist
+	return &u, true, nil // userID does exist
 }
 
 func validateSetupUserReq(req SetupUserReq) error {

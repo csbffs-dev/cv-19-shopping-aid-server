@@ -177,3 +177,18 @@ func createStoreInStorage(ctx context.Context, st *Store) error {
 	}
 	return nil
 }
+
+func GetStoreInStorage(ctx context.Context, storeID string) (*Store, error) {
+	client, err := StorageClient(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer client.Close()
+
+	var st Store
+	key := datastore.NameKey(StoreKind, storeID, nil)
+	if err := client.Get(ctx, key, &st); err != nil {
+		return nil, fmt.Errorf("failed to get store from storage: %v", err)
+	}
+	return &st, nil
+}
