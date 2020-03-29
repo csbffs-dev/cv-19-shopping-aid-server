@@ -1,1 +1,3 @@
 runtime: go112
+env_variables:
+  PROJECT_ID: "cv19-shopping-aid-server"

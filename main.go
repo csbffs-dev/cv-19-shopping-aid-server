@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log"
 	"net/http"
 	"os"
@@ -27,11 +28,12 @@ func main() {
 }
 
 func userSetupHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := context.Background()
 	if r.Method != "POST" {
 		http.NotFound(w, r)
 		return
 	}
-	if status, err := SetupUser(r); err != nil {
+	if status, err := SetupUser(ctx, r); err != nil {
 		http.Error(w, err.Error(), status)
 	}
 }
