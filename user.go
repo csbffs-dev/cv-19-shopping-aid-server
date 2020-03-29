@@ -73,25 +73,26 @@ func SetupUser(ctx context.Context, w http.ResponseWriter, r *http.Request) (int
 	return http.StatusOK, nil
 }
 
-// CheckUserIDInStorage checks that a userID exists in storage.
+// GetUserInStorage checks that a userID exists in storage.
 // Returns a non-nil error if storage client experienced a failure.
 // If no error, returns true/false to indicate that userID exists or not.
-func CheckUserIDInStorage(ctx context.Context, userID string) (bool, error) {
+func GetUserInStorage(ctx context.Context, userID string) (*User, bool, error) {
 	client, err := StorageClient(ctx)
 	if err != nil {
-		return false, err
+		return nil, false, err
 	}
 	defer client.Close()
 
 	key := datastore.NameKey(UserKind, userID, nil)
-	err = client.Get(ctx, key, nil)
+	u := &User{}
+	err = client.Get(ctx, key, &u)
 	if err != nil {
 		if err == datastore.ErrNoSuchEntity {
-			return false, nil // userID does not exist
+			return nil, false, nil // userID does not exist
 		}
-		return false, err
+		return nil, false, err
 	}
-	return true, nil // userID does exist
+	return u, true, nil // userID does exist
 }
 
 func validateSetupUserReq(req SetupUserReq) error {

@@ -8,24 +8,82 @@ import (
 
 	"cloud.google.com/go/datastore"
 	"github.com/google/uuid"
+	"google.golang.org/api/iterator"
 )
 
 type Store struct {
-	StoreID string   `datastore:"storeID"`
-	Name    string   `datastore:"name"`
-	Addr    *Address `datastore:"addr"`
+	StoreID string   `datastore:"storeID" json:"store_id"`
+	Name    string   `datastore:"name" json:"name"`
+	Addr    *Address `datastore:"addr" json:"address"`
 }
 
 type Address struct {
-	Street  string `datastore:"street"`
-	City    string `datastore:"city"`
-	State   string `datastore:"state"`
-	ZipCode string `datastore:"zipCode"`
+	Street  string `datastore:"street" json:"street"`
+	City    string `datastore:"city" json:"city"`
+	State   string `datastore:"state" json:"state"`
+	ZipCode string `datastore:"zipCode" json:"zip_code"`
+}
+
+type QueryStoresReq struct {
+	UserID string `json:"user_id"`
+}
+
+type QueryStoresResp struct {
+	Stores []Store `json:"stores"`
 }
 
 // QueryStores fetches the list of stores in storage.
 func QueryStores(ctx context.Context, w http.ResponseWriter, r *http.Request) (int, error) {
-	return http.StatusNotImplemented, fmt.Errorf("not supported yet")
+	var req QueryStoresReq
+	if err := DecodeReq(r.Body, &req); err != nil {
+		return http.StatusBadRequest, err
+	}
+
+	if err := validateQueryStoresReq(req); err != nil {
+		return http.StatusBadRequest, err
+	}
+
+	_, ok, err := GetUserInStorage(ctx, req.UserID)
+	if err != nil {
+		return http.StatusInternalServerError, fmt.Errorf("failed to check user creds: %v", err)
+	}
+	if !ok {
+		return http.StatusForbidden, fmt.Errorf("user id is invalid: %q", req.UserID)
+	}
+
+	client, err := StorageClient(ctx)
+	if err != nil {
+		return http.StatusInternalServerError, err
+	}
+
+	resp := &QueryStoresResp{}
+	q := datastore.NewQuery(StoreKind)
+	it := client.Run(ctx, q)
+	for {
+		var st Store
+		_, err := it.Next(&st)
+		if err == iterator.Done {
+			break
+		}
+		if err != nil {
+			return http.StatusInternalServerError, fmt.Errorf("failed to query for all stores: %v", err)
+		}
+		resp.Stores = append(resp.Stores, st)
+	}
+
+	// TODO: Order resp.Stores based on distance between user zip code and store address
+
+	if err := EncodeResp(w, &resp); err != nil {
+		return http.StatusInternalServerError, err
+	}
+	return http.StatusOK, nil
+}
+
+func validateQueryStoresReq(req QueryStoresReq) error {
+	if req.UserID == "" {
+		return fmt.Errorf("missing user id")
+	}
+	return nil
 }
 
 type AddStoreReq struct {
