@@ -12,6 +12,7 @@ func main() {
 	http.HandleFunc("/user/setup", userSetupHandler)
 	http.HandleFunc("/item/query", itemQueryHandler)
 	http.HandleFunc("/store/query", storeQueryHandler)
+	http.HandleFunc("/store/add", storeAddHandler)
 	http.HandleFunc("/report/upload", reportUploadHandler)
 	http.HandleFunc("/receipt/parse", receiptParseHandler)
 
@@ -39,43 +40,59 @@ func userSetupHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func itemQueryHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := context.Background()
 	if r.Method != "POST" {
 		http.NotFound(w, r)
 		return
 	}
-	status, err := QueryItems(r)
+	status, err := QueryItems(ctx, w, r)
 	if err != nil {
 		http.Error(w, err.Error(), status)
 	}
 }
 
 func storeQueryHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := context.Background()
 	if r.Method != "POST" {
 		http.NotFound(w, r)
 		return
 	}
-	status, err := QueryStores(r)
+	status, err := QueryStores(ctx, w, r)
+	if err != nil {
+		http.Error(w, err.Error(), status)
+	}
+}
+
+func storeAddHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := context.Background()
+	if r.Method != "POST" {
+		http.NotFound(w, r)
+		return
+	}
+	status, err := AddStore(ctx, w, r)
 	if err != nil {
 		http.Error(w, err.Error(), status)
 	}
 }
 
 func reportUploadHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := context.Background()
 	if r.Method != "POST" {
 		http.NotFound(w, r)
 		return
 	}
-	status, err := UploadReport(r)
+	status, err := UploadReport(ctx, w, r)
 	if err != nil {
 		http.Error(w, err.Error(), status)
 	}
 }
 func receiptParseHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := context.Background()
 	if r.Method != "POST" {
 		http.NotFound(w, r)
 		return
 	}
-	status, err := ParseReceipt(r)
+	status, err := ParseReceipt(ctx, w, r)
 	if err != nil {
 		http.Error(w, err.Error(), status)
 	}

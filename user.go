@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
@@ -26,18 +25,18 @@ type SetupUserResp struct {
 
 // User represents the user entity in storage.
 type User struct {
-	UserID       string `firestore:"userID"`
-	FirstName    string `firestore:"firstName"`
-	LastName     string `firestore:"lastName"`
-	ZipCode      string `firestore:"zipCode"`
-	TimestampSec int64  `firestore:"timestampSec"`
+	UserID       string `datastore:"userID"`
+	FirstName    string `datastore:"firstName"`
+	LastName     string `datastore:"lastName"`
+	ZipCode      string `datastore:"zipCode"`
+	TimestampSec int64  `datastore:"timestampSec"`
 }
 
 // SetupUser sets up a user in storage.
 func SetupUser(ctx context.Context, w http.ResponseWriter, r *http.Request) (int, error) {
 	var req SetupUserReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		return http.StatusBadRequest, fmt.Errorf("failed to decode request body in json: %v", err)
+	if err := DecodeReq(r.Body, &req); err != nil {
+		return http.StatusBadRequest, err
 	}
 	req.FirstName = strings.TrimSpace(req.FirstName)
 	req.LastName = strings.TrimSpace(req.LastName)
@@ -68,9 +67,8 @@ func SetupUser(ctx context.Context, w http.ResponseWriter, r *http.Request) (int
 		UserID: userID,
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(&resp); err != nil {
-		return http.StatusInternalServerError, fmt.Errorf("failed to encode response in json: %v", err)
+	if err := EncodeResp(w, &resp); err != nil {
+		return http.StatusInternalServerError, err
 	}
 	return http.StatusOK, nil
 }

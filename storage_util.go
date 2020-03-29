@@ -10,6 +10,7 @@ import (
 
 const (
 	UserKind = "User"
+	StoreKind = "Store"
 )
 
 // StorageClient returns a storage client instance.
