@@ -1,6 +1,5 @@
 package main
 
-// [START import]
 import (
 	"fmt"
 	"log"
@@ -8,13 +7,9 @@ import (
 	"os"
 )
 
-// [END import]
-// [START main_func]
-
 func main() {
 	http.HandleFunc("/", indexHandler)
 
-	// [START setting_port]
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
@@ -25,7 +20,6 @@ func main() {
 	if err := http.ListenAndServe(":"+port, nil); err != nil {
 		log.Fatal(err)
 	}
-	// [END setting_port]
 }
 
 func indexHandler(w http.ResponseWriter, r *http.Request) {
