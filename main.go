@@ -1,14 +1,18 @@
 package main
 
 import (
-	"fmt"
 	"log"
 	"net/http"
 	"os"
 )
 
 func main() {
-	http.HandleFunc("/", indexHandler)
+	// TODO: Use github.com/gorilla/mux for HTTP routing.
+	http.HandleFunc("/user/setup", userSetupHandler)
+	http.HandleFunc("/item/query", itemQueryHandler)
+	http.HandleFunc("/store/query", storeQueryHandler)
+	http.HandleFunc("/report/upload", reportUploadHandler)
+	http.HandleFunc("/receipt/parse", receiptParseHandler)
 
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -22,10 +26,55 @@ func main() {
 	}
 }
 
-func indexHandler(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path != "/" {
+func userSetupHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
 		http.NotFound(w, r)
 		return
 	}
-	fmt.Fprint(w, "Hello, World!")
+	if status, err := SetupUser(r); err != nil {
+		http.Error(w, err.Error(), status)
+	}
+}
+
+func itemQueryHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.NotFound(w, r)
+		return
+	}
+	status, err := QueryItems(r)
+	if err != nil {
+		http.Error(w, err.Error(), status)
+	}
+}
+
+func storeQueryHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.NotFound(w, r)
+		return
+	}
+	status, err := QueryStores(r)
+	if err != nil {
+		http.Error(w, err.Error(), status)
+	}
+}
+
+func reportUploadHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.NotFound(w, r)
+		return
+	}
+	status, err := UploadReport(r)
+	if err != nil {
+		http.Error(w, err.Error(), status)
+	}
+}
+func receiptParseHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.NotFound(w, r)
+		return
+	}
+	status, err := ParseReceipt(r)
+	if err != nil {
+		http.Error(w, err.Error(), status)
+	}
 }
