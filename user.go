@@ -34,7 +34,7 @@ type User struct {
 }
 
 // SetupUser sets up a user in storage.
-func SetupUser(ctx context.Context, r *http.Request) (int, error) {
+func SetupUser(ctx context.Context, w http.ResponseWriter, r *http.Request) (int, error) {
 	var req SetupUserReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		return http.StatusBadRequest, fmt.Errorf("failed to decode request body in json: %v", err)
@@ -64,6 +64,14 @@ func SetupUser(ctx context.Context, r *http.Request) (int, error) {
 		return http.StatusInternalServerError, err
 	}
 
+	resp := &SetupUserResp{
+		UserID: userID,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(&resp); err != nil {
+		return http.StatusInternalServerError, fmt.Errorf("failed to encode response in json: %v", err)
+	}
 	return http.StatusOK, nil
 }
 

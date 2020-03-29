@@ -33,7 +33,7 @@ func userSetupHandler(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	if status, err := SetupUser(ctx, r); err != nil {
+	if status, err := SetupUser(ctx, w, r); err != nil {
 		http.Error(w, err.Error(), status)
 	}
 }
