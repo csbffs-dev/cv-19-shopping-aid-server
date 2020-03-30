@@ -11,10 +11,10 @@ import (
 )
 
 type StockReport struct {
-	UserInfo     *User
-	StoreInfo    *Store
-	TimestampSec int64
-	InStock      bool
+	UserInfo     *User  `datastore:"user_info"`
+	StoreInfo    *Store `datastore:"store_info"`
+	TimestampSec int64  `datastore:"timestamp_sec"`
+	InStock      bool   `datastore:"in_stock"`
 }
 
 type UploadReportReq struct {
@@ -65,9 +65,9 @@ func UploadReport(ctx context.Context, w http.ResponseWriter, r *http.Request) (
 					return fmt.Errorf("failed to fetch item %q from storage: %v", itemName, err)
 				}
 				item.Name = itemName
-				item.InStockReports = make([]*StockReport, 0)
+				item.StockReports = make([]*StockReport, 0)
 			}
-			item.InStockReports = append(item.InStockReports, &StockReport{
+			item.StockReports = append(item.StockReports, &StockReport{
 				UserInfo:     user,
 				StoreInfo:    store,
 				TimestampSec: now,
@@ -90,9 +90,9 @@ func UploadReport(ctx context.Context, w http.ResponseWriter, r *http.Request) (
 					return fmt.Errorf("failed to fetch item %q from storage: %v", itemName, err)
 				}
 				item.Name = itemName
-				item.OutStockReports = make([]*StockReport, 0)
+				item.StockReports = make([]*StockReport, 0)
 			}
-			item.OutStockReports = append(item.OutStockReports, &StockReport{
+			item.StockReports = append(item.StockReports, &StockReport{
 				UserInfo:     user,
 				StoreInfo:    store,
 				TimestampSec: now,
