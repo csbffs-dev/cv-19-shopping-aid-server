@@ -10,6 +10,7 @@ import (
 func main() {
 	// TODO: Use github.com/gorilla/mux for HTTP routing.
 	http.HandleFunc("/user/setup", userSetupHandler)
+	http.HandleFunc("/user/query", userQueryHandler)
 	http.HandleFunc("/item/query", itemQueryHandler)
 	http.HandleFunc("/store/query", storeQueryHandler)
 	http.HandleFunc("/store/add", storeAddHandler)
@@ -35,6 +36,17 @@ func userSetupHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if status, err := SetupUser(ctx, w, r); err != nil {
+		http.Error(w, err.Error(), status)
+	}
+}
+
+func userQueryHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := context.Background()
+	if r.Method != "POST" {
+		http.NotFound(w, r)
+		return
+	}
+	if status, err := QueryUser(ctx, w, r); err != nil {
 		http.Error(w, err.Error(), status)
 	}
 }

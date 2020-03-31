@@ -87,6 +87,7 @@ func validateQueryStoresReq(req QueryStoresReq) error {
 }
 
 type AddStoreReq struct {
+	UserID  string `json:"user_id"`
 	Name    string `json:"name"`
 	Street  string `json:"street"`
 	City    string `json:"city"`
@@ -103,14 +104,17 @@ func AddStore(ctx context.Context, w http.ResponseWriter, r *http.Request) (int,
 	if err := DecodeReq(r.Body, &req); err != nil {
 		return http.StatusBadRequest, err
 	}
-	req.Name = strings.TrimSpace(req.Name)
-	req.Street = strings.TrimSpace(req.Street)
-	req.City = strings.TrimSpace(req.City)
-	req.State = strings.TrimSpace(req.State)
-	req.ZipCode = strings.TrimSpace(req.ZipCode)
 
-	if err := validateAddStoreReq(req); err != nil {
+	if err := cleanAndValidateAddStoreReq(&req); err != nil {
 		return http.StatusBadRequest, err
+	}
+
+	_, ok, err := GetUserInStorage(ctx, req.UserID)
+	if err != nil {
+		return http.StatusInternalServerError, fmt.Errorf("failed to check user creds: %v", err)
+	}
+	if !ok {
+		return http.StatusForbidden, fmt.Errorf("user id is invalid: %q", req.UserID)
 	}
 
 	uid, err := uuid.NewRandom()
@@ -144,7 +148,16 @@ func AddStore(ctx context.Context, w http.ResponseWriter, r *http.Request) (int,
 	return http.StatusOK, nil
 }
 
-func validateAddStoreReq(req AddStoreReq) error {
+func cleanAndValidateAddStoreReq(req *AddStoreReq) error {
+	req.Name = strings.TrimSpace(req.Name)
+	req.Street = strings.TrimSpace(req.Street)
+	req.City = strings.TrimSpace(req.City)
+	req.State = strings.TrimSpace(req.State)
+	req.ZipCode = strings.TrimSpace(req.ZipCode)
+
+	if req.UserID == "" {
+		return fmt.Errorf("missing user id")
+	}
 	if req.Name == "" {
 		return fmt.Errorf("missing store name")
 	}

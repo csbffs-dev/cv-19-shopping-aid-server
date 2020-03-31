@@ -47,14 +47,17 @@ func UploadReport(ctx context.Context, w http.ResponseWriter, r *http.Request) (
 		return http.StatusInternalServerError, err
 	}
 
-	// for each item in inStock, fetch item using name as key from storage.
-	// if item doesn't exist, create item in storage
 	client, err := StorageClient(ctx)
 	if err != nil {
 		return http.StatusInternalServerError, err
 	}
 	defer client.Close()
 
+	// For each item in inStock and outStock, update item using name as key from storage.
+	// If item doesn't exist, create item in storage.
+	// TODO: Do not create an entirely new stock report if there is already
+	// 		 a stock report in storage with the same StoreInfo value, recent Timestamp value,
+	//		 and same inStock value. Just update the UserInfo and Timestamp.
 	now := time.Now().Unix()
 	for _, itemName := range req.InStock {
 		if _, err := client.RunInTransaction(ctx, func(tx *datastore.Transaction) error {

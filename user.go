@@ -25,11 +25,11 @@ type SetupUserResp struct {
 
 // User represents the user entity in storage.
 type User struct {
-	UserID       string `datastore:"userID"`
-	FirstName    string `datastore:"firstName"`
-	LastName     string `datastore:"lastName"`
-	ZipCode      string `datastore:"zipCode"`
-	TimestampSec int64  `datastore:"timestampSec"`
+	UserID       string `datastore:"userID" json:"user_id"`
+	FirstName    string `datastore:"firstName" json:"first_name"`
+	LastName     string `datastore:"lastName" json:"last_name"`
+	ZipCode      string `datastore:"zipCode" json:"zip_code"`
+	TimestampSec int64  `datastore:"timestampSec" json:"timestamp_sec"`
 }
 
 // SetupUser sets up a user in storage.
@@ -73,28 +73,6 @@ func SetupUser(ctx context.Context, w http.ResponseWriter, r *http.Request) (int
 	return http.StatusOK, nil
 }
 
-// GetUserInStorage checks that a userID exists in storage.
-// Returns a non-nil error if storage client experienced a failure.
-// If no error, returns true/false to indicate that userID exists or not.
-func GetUserInStorage(ctx context.Context, userID string) (*User, bool, error) {
-	client, err := StorageClient(ctx)
-	if err != nil {
-		return nil, false, err
-	}
-	defer client.Close()
-
-	key := datastore.NameKey(UserKind, userID, nil)
-	var u User
-	err = client.Get(ctx, key, &u)
-	if err != nil {
-		if err == datastore.ErrNoSuchEntity {
-			return nil, false, nil // userID does not exist
-		}
-		return nil, false, err
-	}
-	return &u, true, nil // userID does exist
-}
-
 func validateSetupUserReq(req SetupUserReq) error {
 	if req.FirstName == "" {
 		return fmt.Errorf("missing first name")
@@ -125,4 +103,62 @@ func createUserInStorage(ctx context.Context, u *User) error {
 		return fmt.Errorf("failed to create user in storage: %v", err)
 	}
 	return nil
+}
+
+type QueryUserReq struct {
+	UserID string `json:"user_id"`
+}
+
+type QueryUserResp struct {
+	UserInfo *User `json:"user"`
+}
+
+func QueryUser(ctx context.Context, w http.ResponseWriter, r *http.Request) (int, error) {
+	var req QueryUserReq
+	if err := DecodeReq(r.Body, &req); err != nil {
+		return http.StatusBadRequest, err
+	}
+	if err := validateQueryUserReq(&req); err != nil {
+		return http.StatusBadRequest, err
+	}
+	u, ok, err := GetUserInStorage(ctx, req.UserID)
+	if err != nil {
+		return http.StatusInternalServerError, fmt.Errorf("failed to query storage: %v", err)
+	}
+	if !ok {
+		return http.StatusBadRequest, fmt.Errorf("user id is invalid: %q", req.UserID)
+	}
+	if err := EncodeResp(w, &QueryUserResp{UserInfo: u}); err != nil {
+		return http.StatusInternalServerError, err
+	}
+	return http.StatusOK, nil
+}
+
+func validateQueryUserReq(req *QueryUserReq) error {
+	if req.UserID == "" {
+		return fmt.Errorf("missing user id")
+	}
+	return nil
+}
+
+// GetUserInStorage checks that a userID exists in storage.
+// Returns a non-nil error if storage client experienced a failure.
+// If no error, returns true/false to indicate that userID exists or not.
+func GetUserInStorage(ctx context.Context, userID string) (*User, bool, error) {
+	client, err := StorageClient(ctx)
+	if err != nil {
+		return nil, false, err
+	}
+	defer client.Close()
+
+	key := datastore.NameKey(UserKind, userID, nil)
+	var u User
+	err = client.Get(ctx, key, &u)
+	if err != nil {
+		if err == datastore.ErrNoSuchEntity {
+			return nil, false, nil // userID does not exist
+		}
+		return nil, false, err
+	}
+	return &u, true, nil // userID does exist
 }

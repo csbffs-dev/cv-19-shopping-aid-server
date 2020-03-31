@@ -73,6 +73,7 @@ func QueryItems(ctx context.Context, w http.ResponseWriter, r *http.Request) (in
 		if err != nil {
 			return http.StatusInternalServerError, fmt.Errorf("failed to query for all items: %v", err)
 		}
+		// TODO: Filter response based on nearness to user's zipcode.
 		parseItemIntoResp(&t, resp)
 	}
 
