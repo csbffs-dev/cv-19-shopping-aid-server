@@ -12,24 +12,21 @@ import (
 )
 
 type Store struct {
-	StoreID string   `datastore:"storeID" json:"store_id"`
-	Name    string   `datastore:"name" json:"name"`
-	Addr    *Address `datastore:"addr" json:"address"`
+	StoreID string `datastore:"storeID" json:"store_id"`
+	Name    string `datastore:"name" json:"name"`
+	Addr    string `datastore:"addr" json:"address"`
 }
 
-type Address struct {
-	Street  string `datastore:"street" json:"street"`
-	City    string `datastore:"city" json:"city"`
-	State   string `datastore:"state" json:"state"`
-	ZipCode string `datastore:"zipCode" json:"zip_code"`
-}
+// ******************************************
+// ** BEGIN QueryStores
+// ******************************************
 
 type QueryStoresReq struct {
 	UserID string `json:"user_id"`
 }
 
 type QueryStoresResp struct {
-	Stores []Store `json:"stores"`
+	Stores []*Store `json:"stores"`
 }
 
 // QueryStores fetches the list of stores in storage.
@@ -43,7 +40,7 @@ func QueryStores(ctx context.Context, w http.ResponseWriter, r *http.Request) (i
 		return http.StatusBadRequest, err
 	}
 
-	_, ok, err := GetUserInStorage(ctx, req.UserID)
+	u, ok, err := GetUserInStorage(ctx, req.UserID)
 	if err != nil {
 		return http.StatusInternalServerError, fmt.Errorf("failed to check user creds: %v", err)
 	}
@@ -56,7 +53,7 @@ func QueryStores(ctx context.Context, w http.ResponseWriter, r *http.Request) (i
 		return http.StatusInternalServerError, err
 	}
 
-	resp := &QueryStoresResp{}
+	resp := &QueryStoresResp{Stores: make([]*Store, 0)}
 	q := datastore.NewQuery(StoreKind)
 	it := client.Run(ctx, q)
 	for {
@@ -68,10 +65,12 @@ func QueryStores(ctx context.Context, w http.ResponseWriter, r *http.Request) (i
 		if err != nil {
 			return http.StatusInternalServerError, fmt.Errorf("failed to query for all stores: %v", err)
 		}
-		resp.Stores = append(resp.Stores, st)
+		resp.Stores = append(resp.Stores, &st)
 	}
 
-	// TODO: Order resp.Stores based on distance between user zip code and store address
+	if err := sortAndPruneNearby(resp, u.ZipCode); err != nil {
+		return http.StatusInternalServerError, err
+	}
 
 	if err := EncodeResp(w, &resp); err != nil {
 		return http.StatusInternalServerError, err
@@ -86,13 +85,18 @@ func validateQueryStoresReq(req QueryStoresReq) error {
 	return nil
 }
 
+// ******************************************
+// ** END QueryStores
+// ******************************************
+
+// ******************************************
+// ** BEGIN AddStore
+// ******************************************
+
 type AddStoreReq struct {
-	UserID  string `json:"user_id"`
-	Name    string `json:"name"`
-	Street  string `json:"street"`
-	City    string `json:"city"`
-	State   string `json:"state"`
-	ZipCode string `json:"zip_code"`
+	UserID   string `json:"user_id"`
+	Name     string `json:"name"`
+	AddrText string `json:"address"`
 }
 
 type AddStoreResp struct {
@@ -117,31 +121,30 @@ func AddStore(ctx context.Context, w http.ResponseWriter, r *http.Request) (int,
 		return http.StatusForbidden, fmt.Errorf("user id is invalid: %q", req.UserID)
 	}
 
+	st := &Store{
+		Name: req.Name,
+		Addr: req.AddrText,
+	}
+
+	// TODO: Prevent dupes. Check that store does not already exist in storage.
+
+	if err := vetStoreToAdd(st); err != nil {
+		return http.StatusBadRequest, err
+	}
+
 	uid, err := uuid.NewRandom()
 	if err != nil {
 		return http.StatusInternalServerError, fmt.Errorf("failed to generate store id: %v", err)
 	}
-	storeID := uid.String()
+	st.StoreID = uid.String()
 
-	store := &Store{
-		StoreID: storeID,
-		Name:    req.Name,
-		Addr: &Address{
-			Street:  req.Street,
-			City:    req.City,
-			State:   req.State,
-			ZipCode: req.ZipCode,
-		},
-	}
-
-	if err := createStoreInStorage(ctx, store); err != nil {
+	if err := createStoreInStorage(ctx, st); err != nil {
 		return http.StatusInternalServerError, err
 	}
 
 	resp := &AddStoreResp{
-		StoreID: storeID,
+		StoreID: st.StoreID,
 	}
-
 	if err := EncodeResp(w, &resp); err != nil {
 		return http.StatusInternalServerError, err
 	}
@@ -150,10 +153,7 @@ func AddStore(ctx context.Context, w http.ResponseWriter, r *http.Request) (int,
 
 func cleanAndValidateAddStoreReq(req *AddStoreReq) error {
 	req.Name = strings.TrimSpace(req.Name)
-	req.Street = strings.TrimSpace(req.Street)
-	req.City = strings.TrimSpace(req.City)
-	req.State = strings.TrimSpace(req.State)
-	req.ZipCode = strings.TrimSpace(req.ZipCode)
+	req.AddrText = strings.TrimSpace(req.AddrText)
 
 	if req.UserID == "" {
 		return fmt.Errorf("missing user id")
@@ -161,19 +161,31 @@ func cleanAndValidateAddStoreReq(req *AddStoreReq) error {
 	if req.Name == "" {
 		return fmt.Errorf("missing store name")
 	}
-	if req.Street == "" {
-		return fmt.Errorf("missing street")
-	}
-	if req.City == "" {
-		return fmt.Errorf("missing city")
-	}
-	if req.State == "" {
-		return fmt.Errorf("missing state")
-	}
-	if req.ZipCode == "" {
-		return fmt.Errorf("missing zip code")
+	if req.AddrText == "" {
+		return fmt.Errorf("missing store address text")
 	}
 	return nil
+}
+
+// ******************************************
+// ** END AddStore
+// ******************************************
+
+// GetStoreInStorage fetches the store with key = storeID in storage.
+// Returns a non-nil error if storage client experienced a failure.
+func GetStoreInStorage(ctx context.Context, storeID string) (*Store, error) {
+	client, err := StorageClient(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer client.Close()
+
+	var st Store
+	key := datastore.NameKey(StoreKind, storeID, nil)
+	if err := client.Get(ctx, key, &st); err != nil {
+		return nil, fmt.Errorf("failed to get store from storage: %v", err)
+	}
+	return &st, nil
 }
 
 func createStoreInStorage(ctx context.Context, st *Store) error {
@@ -191,17 +203,17 @@ func createStoreInStorage(ctx context.Context, st *Store) error {
 	return nil
 }
 
-func GetStoreInStorage(ctx context.Context, storeID string) (*Store, error) {
-	client, err := StorageClient(ctx)
-	if err != nil {
-		return nil, err
-	}
-	defer client.Close()
+func vetStoreToAdd(storeInfo *Store) error {
+	// TODO: Ensure store and address match with Google Places API result.
+	// Modify storeInfo with Places API result.
+	return nil
+}
 
-	var st Store
-	key := datastore.NameKey(StoreKind, storeID, nil)
-	if err := client.Get(ctx, key, &st); err != nil {
-		return nil, fmt.Errorf("failed to get store from storage: %v", err)
-	}
-	return &st, nil
+func sortAndPruneNearby(resp *QueryStoresResp, zipCode string) error {
+	// TODO: Order resp.Stores based on closest distance between user zip code and store address.
+	// 1. Compare zip codes between store and user. Filter stores that are in different state/region as user.
+	// 2. Pass in the store addresses and zipcode to Google Maps Distance Matrix API.
+	// 3. Order stores based on response.
+	// 4. Return the top 10.
+	return nil
 }

@@ -10,12 +10,18 @@ import (
 	"cloud.google.com/go/datastore"
 )
 
+// StockReport represents the report entity. It is NOT stored as an entity in storage. Rather it is stored as a field of the item entity.
 type StockReport struct {
 	UserInfo     *User  `datastore:"user_info"`
 	StoreInfo    *Store `datastore:"store_info"`
 	TimestampSec int64  `datastore:"timestamp_sec"`
 	InStock      bool   `datastore:"in_stock"`
+	SeenCnt      int    `datastore:"seen_cnt"`
 }
+
+// ******************************************
+// ** Begin UploadReport
+// ******************************************
 
 type UploadReportReq struct {
 	UserID   string   `json:"user_id"`
@@ -24,7 +30,8 @@ type UploadReportReq struct {
 	OutStock []string `json:"out_stock_items"`
 }
 
-// UploadReport uploads a report to storage.
+// UploadReport updates each item in the in-stock list and out-stock list in the request
+// with the stock report data.
 func UploadReport(ctx context.Context, w http.ResponseWriter, r *http.Request) (int, error) {
 	var req UploadReportReq
 	if err := DecodeReq(r.Body, &req); err != nil {
@@ -57,7 +64,7 @@ func UploadReport(ctx context.Context, w http.ResponseWriter, r *http.Request) (
 	// If item doesn't exist, create item in storage.
 	// TODO: Do not create an entirely new stock report if there is already
 	// 		 a stock report in storage with the same StoreInfo value, recent Timestamp value,
-	//		 and same inStock value. Just update the UserInfo and Timestamp.
+	//		 and same inStock value. Just update the Timestamp and SeenCnt.
 	now := time.Now().Unix()
 	for _, itemName := range req.InStock {
 		if _, err := client.RunInTransaction(ctx, func(tx *datastore.Transaction) error {
@@ -144,7 +151,7 @@ func cleanAndValidateUploadReportReq(req *UploadReportReq) error {
 	for i := range req.OutStock {
 		item := strings.ToLower(strings.TrimSpace(req.OutStock[i]))
 		if item == "" {
-			return fmt.Errorf("out-of-stock item at index %d is empty, i")
+			return fmt.Errorf("out-of-stock item at index %d is empty", i)
 		}
 		if _, ok := seen[item]; ok {
 			continue
@@ -156,3 +163,7 @@ func cleanAndValidateUploadReportReq(req *UploadReportReq) error {
 	req.OutStock = outStock
 	return nil
 }
+
+// ******************************************
+// ** END UploadReport
+// ******************************************

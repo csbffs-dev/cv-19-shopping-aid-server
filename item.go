@@ -11,13 +11,17 @@ import (
 )
 
 const (
-	DateAndTimeSeenLayout = "Mon Jan 2, 2006 15:04:05 MST" // See https://golang.org/pkg/time/#Time.Format
+	DateAndTimeSeenLayout = "Mon Jan 2 15:04:05" // See https://golang.org/pkg/time/#Time.Format
 )
 
 type Item struct {
 	Name         string         `datastore:"name"`
 	StockReports []*StockReport `datastore:"stock_report"`
 }
+
+// ******************************************
+// ** Begin QueryItems
+// ******************************************
 
 type QueryItemsReq struct {
 	UserID string `json:"user_id"`
@@ -27,14 +31,13 @@ type QueryItemsResp struct {
 	Items []*ItemInfo `json:"items"`
 }
 
+// TODO: Change DateAndTimeSeen to HoursAgo or DaysAgo
 type ItemInfo struct {
-	ItemName        string   `json:"item_name"`
-	DateAndTimeSeen string   `json:"date_and_time_seen"`
-	StoreName       string   `json:"store_name"`
-	StoreAddr       *Address `json:"store_address"`
-	UserInitials    string   `json:"user_initials"`
-	UserZipCode     string   `json:"user_zip_code"`
-	InStock         bool     `json:"in_stock"`
+	ItemName        string `json:"item_name"`
+	DateAndTimeSeen string `json:"date_and_time_seen"`
+	StoreName       string `json:"store_name"`
+	StoreAddr       string `json:"store_address"`
+	InStock         bool   `json:"in_stock"`
 }
 
 // QueryItems fetches the list of items in storage.
@@ -61,7 +64,7 @@ func QueryItems(ctx context.Context, w http.ResponseWriter, r *http.Request) (in
 		return http.StatusInternalServerError, err
 	}
 
-	resp := &QueryItemsResp{}
+	resp := &QueryItemsResp{Items: make([]*ItemInfo, 0)}
 	q := datastore.NewQuery(ItemKind)
 	it := client.Run(ctx, q)
 	for {
@@ -90,6 +93,10 @@ func validateQueryItemsReq(req QueryItemsReq) error {
 	return nil
 }
 
+// ******************************************
+// ** END QueryItems
+// ******************************************
+
 func parseItemIntoResp(item *Item, resp *QueryItemsResp) {
 	for _, stockReport := range item.StockReports {
 		itemInfo := &ItemInfo{
@@ -97,8 +104,6 @@ func parseItemIntoResp(item *Item, resp *QueryItemsResp) {
 			DateAndTimeSeen: time.Unix(stockReport.TimestampSec, 0).Format(DateAndTimeSeenLayout),
 			StoreName:       stockReport.StoreInfo.Name,
 			StoreAddr:       stockReport.StoreInfo.Addr,
-			UserInitials:    fmt.Sprintf("%s.%s.", string(stockReport.UserInfo.FirstName[0]), string(stockReport.UserInfo.LastName[0])),
-			UserZipCode:     stockReport.UserInfo.ZipCode,
 			InStock:         stockReport.InStock,
 		}
 		resp.Items = append(resp.Items, itemInfo)
