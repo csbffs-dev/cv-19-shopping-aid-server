@@ -3,12 +3,27 @@ package main
 import (
 	"context"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 
 	"cloud.google.com/go/datastore"
 	"github.com/google/uuid"
 	"google.golang.org/api/iterator"
+	"googlemaps.github.io/maps"
+)
+
+// See https://developers.google.com/places/web-service/supported_types#table1 for all place types.
+var (
+	relevantStoreTypes = map[string]bool{
+		"convenience_store":      true,
+		"department_store":       true,
+		"drugstore":              true,
+		"grocery_or_supermarket": true,
+		"liquor_store":           true,
+		"pharmacy":               true,
+		"supermarket":            true,
+	}
 )
 
 type Store struct {
@@ -128,7 +143,12 @@ func AddStore(ctx context.Context, w http.ResponseWriter, r *http.Request) (int,
 
 	// TODO: Prevent dupes. Check that store does not already exist in storage.
 
-	if err := vetStoreToAdd(st); err != nil {
+	client, err := MapsClient()
+	if err != nil {
+		return http.StatusInternalServerError, err
+	}
+
+	if err := vetStoreInfo(ctx, client, st); err != nil {
 		return http.StatusBadRequest, err
 	}
 
@@ -203,9 +223,57 @@ func createStoreInStorage(ctx context.Context, st *Store) error {
 	return nil
 }
 
-func vetStoreToAdd(storeInfo *Store) error {
-	// TODO: Ensure store and address match with Google Places API result.
-	// Modify storeInfo with Places API result.
+// vetStoreInfo vets the storeInfo name and address before adding it to Storage.
+// 1. calls the Google Maps Places API with a query with storeInfo name and address.
+// 2. places API returns the fully qualified name and address of the candidate place that matches.
+//    Only one candidate place can be returned, otherwise an error is returned with string output of the candidate places.
+// 3. checks to see that the storeInfo name exists as substring in the fully qualified name. Similarly, for the addresses.
+//    If they don't match, an error is returned with string output of both.
+//    If they do match, the storeInfo is updated with the fully qualified data.
+func vetStoreInfo(ctx context.Context, client *maps.Client, storeInfo *Store) error {
+	placesQueryInput := fmt.Sprintf("%s %s", storeInfo.Name, storeInfo.Addr)
+
+	findPlaceReq := &maps.FindPlaceFromTextRequest{
+		InputType: maps.FindPlaceFromTextInputTypeTextQuery,
+		Input:     placesQueryInput,
+		Fields: []maps.PlaceSearchFieldMask{
+			maps.PlaceSearchFieldMaskFormattedAddress,
+			maps.PlaceSearchFieldMaskName,
+			maps.PlaceSearchFieldMaskPlaceID,
+		},
+	}
+	findPlaceResp, err := client.FindPlaceFromText(ctx, findPlaceReq)
+	if err != nil {
+		return err
+	}
+
+	if len(findPlaceResp.Candidates) != 1 {
+		log.Printf("the store info `%s` returned %d matches", storeInfo, len(findPlaceResp.Candidates))
+		errMsg := fmt.Sprintf("found %d store(s) that matched the given store information, but only 1 store can match.\n", len(findPlaceResp.Candidates))
+		for i, cand := range findPlaceResp.Candidates {
+			errMsg += fmt.Sprintf("%d: %s %s\n", i+1, cand.Name, cand.FormattedAddress)
+		}
+		return fmt.Errorf(errMsg)
+	}
+
+	vettedName := findPlaceResp.Candidates[0].Name
+	vettedAddr := strings.TrimSuffix(findPlaceResp.Candidates[0].FormattedAddress, ", United States")
+
+	detailsReq := &maps.PlaceDetailsRequest{
+		PlaceID: findPlaceResp.Candidates[0].PlaceID,
+		Fields:  []maps.PlaceDetailsFieldMask{maps.PlaceDetailsFieldMaskTypes},
+	}
+	detailsResp, err := client.PlaceDetails(ctx, detailsReq)
+	for _, placeType := range detailsResp.Types {
+		if _, ok := relevantStoreTypes[placeType]; ok {
+			break
+		}
+		return fmt.Errorf("could not verify store info `%q %q` as a real grocery store", vettedName, vettedAddr)
+	}
+
+	log.Printf("store `%q %q` vetted and changed to `%q %q`", storeInfo.Name, storeInfo.Addr, vettedName, vettedAddr)
+	storeInfo.Name = vettedName
+	storeInfo.Addr = vettedAddr
 	return nil
 }
 
