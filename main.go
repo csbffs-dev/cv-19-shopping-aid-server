@@ -9,6 +9,7 @@ import (
 
 func main() {
 	// TODO: Use github.com/gorilla/mux for HTTP routing.
+	// TODO: Set up admin endpoints.
 	http.HandleFunc("/user/setup", userSetupHandler)
 	http.HandleFunc("/user/edit", userEditHandler)
 	http.HandleFunc("/user/delete", userDeleteHandler)

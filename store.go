@@ -36,9 +36,11 @@ var (
 )
 
 type Store struct {
-	StoreID string `datastore:"storeID" json:"store_id"`
-	Name    string `datastore:"name" json:"name"`
-	Addr    string `datastore:"addr" json:"address"`
+	StoreID string  `datastore:"storeID" json:"store_id"`
+	Name    string  `datastore:"name" json:"name"`
+	Addr    string  `datastore:"addr" json:"address"`
+	Lat     float64 `datastore:"lat" json:"latitude"`
+	Long    float64 `datastore:"long" json:"longitude"`
 }
 
 // ******************************************
@@ -88,6 +90,7 @@ func QueryStores(ctx context.Context, w http.ResponseWriter, r *http.Request) (i
 	if err != nil {
 		return http.StatusInternalServerError, err
 	}
+	defer client.Close()
 
 	var stores []*Store
 	q := datastore.NewQuery(StoreKind)
@@ -268,13 +271,16 @@ func createStoreInStorage(ctx context.Context, st *Store) error {
 	return nil
 }
 
-// vetStoreInfo vets the storeInfo name and address before adding it to Storage.
-// 1. calls the Google Maps Places API with a query with storeInfo name and address.
-// 2. places API returns the fully qualified name and address of the candidate place that matches.
-//    Only one candidate place can be returned, otherwise an error is returned with string output of the candidate places.
-// 3. checks to see that the storeInfo name exists as substring in the fully qualified name. Similarly, for the addresses.
-//    If they don't match, an error is returned with string output of both.
-//    If they do match, the storeInfo is updated with the fully qualified data.
+// vetStoreInfo vets the storeInfo before adding it to Storage.
+// 1. calls the Google Maps Places API with a query `<storeInfo.name> <storeInfo.address>`.
+// 2. Places API returns the fully qualified name, address, lat, and long of the candidate
+//    place that matches.
+//    Only one candidate place can be returned, otherwise an error is returned with string
+//    output of the candidate places.
+// 3. calls the Places API again to get details of the candidate place. If the candidate
+//    does not have a relevant label (see relevantStoreTypes variable), the candidate
+//    is rejected and an error is returned.
+// 4. overrides storeInfo fields with those returned by Places API
 func vetStoreInfo(ctx context.Context, client *maps.Client, storeInfo *Store) error {
 	placesQueryInput := fmt.Sprintf("%s %s", storeInfo.Name, storeInfo.Addr)
 
@@ -285,6 +291,7 @@ func vetStoreInfo(ctx context.Context, client *maps.Client, storeInfo *Store) er
 			maps.PlaceSearchFieldMaskFormattedAddress,
 			maps.PlaceSearchFieldMaskName,
 			maps.PlaceSearchFieldMaskPlaceID,
+			maps.PlaceSearchFieldMaskGeometry,
 		},
 	}
 	findPlaceResp, err := client.FindPlaceFromText(ctx, findPlaceReq)
@@ -293,7 +300,7 @@ func vetStoreInfo(ctx context.Context, client *maps.Client, storeInfo *Store) er
 	}
 
 	if len(findPlaceResp.Candidates) != 1 {
-		log.Printf("the store info `%s` returned %d matches", storeInfo, len(findPlaceResp.Candidates))
+		log.Printf("the store info `%q %q` returned %d matches", storeInfo.Name, storeInfo.Addr, len(findPlaceResp.Candidates))
 		errMsg := fmt.Sprintf("found %d store(s) that matched the given store information, but only 1 store can match.\n", len(findPlaceResp.Candidates))
 		for i, cand := range findPlaceResp.Candidates {
 			errMsg += fmt.Sprintf("%d: %s %s\n", i+1, cand.Name, cand.FormattedAddress)
@@ -303,6 +310,8 @@ func vetStoreInfo(ctx context.Context, client *maps.Client, storeInfo *Store) er
 
 	vettedName := findPlaceResp.Candidates[0].Name
 	vettedAddr := strings.TrimSuffix(findPlaceResp.Candidates[0].FormattedAddress, ", United States")
+	lat := findPlaceResp.Candidates[0].Geometry.Location.Lat
+	lng := findPlaceResp.Candidates[0].Geometry.Location.Lng
 
 	detailsReq := &maps.PlaceDetailsRequest{
 		PlaceID: findPlaceResp.Candidates[0].PlaceID,
@@ -316,14 +325,17 @@ func vetStoreInfo(ctx context.Context, client *maps.Client, storeInfo *Store) er
 		return fmt.Errorf("could not verify store info `%q %q` as a real grocery store", vettedName, vettedAddr)
 	}
 
-	log.Printf("store `%q %q` vetted and changed to `%q %q`", storeInfo.Name, storeInfo.Addr, vettedName, vettedAddr)
+	log.Printf("store `%q %q` vetted and changed to `%q %q (%f, %f)`", storeInfo.Name, storeInfo.Addr, vettedName, vettedAddr, lat, lng)
 	storeInfo.Name = vettedName
 	storeInfo.Addr = vettedAddr
+	storeInfo.Lat = lat
+	storeInfo.Long = lng
 	return nil
 }
 
 func sortAndPruneNearby(stores []*Store, zipCode string) error {
-	// TODO: Order resp.Stores based on closest distance between user zip code and store address.
+	// TODO: Order resp.Stores based on closest distance between user zip code
+	// and store address.
 	// 1. Compare zip codes between store and user. Filter stores that are in different state/region as user.
 	// 2. Pass in the store addresses and zipcode to Google Maps Distance Matrix API.
 	// 3. Order stores based on response.
