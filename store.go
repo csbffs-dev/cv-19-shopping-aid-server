@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"regexp"
 	"strings"
 
 	"cloud.google.com/go/datastore"
@@ -12,6 +13,14 @@ import (
 	"google.golang.org/api/iterator"
 	"googlemaps.github.io/maps"
 )
+
+var (
+	validAddress *regexp.Regexp
+)
+
+func init() {
+	validAddress = regexp.MustCompile("^.+, .+, [A-Za-z]{2,} [0-9]{5,}$")
+}
 
 // See https://developers.google.com/places/web-service/supported_types#table1 for all place types.
 var (
@@ -41,7 +50,19 @@ type QueryStoresReq struct {
 }
 
 type QueryStoresResp struct {
-	Stores []*Store `json:"stores"`
+	Stores []*QueryStoreInfo `json:"stores"`
+}
+
+type QueryStoreInfo struct {
+	*Store
+	*Address
+}
+
+type Address struct {
+	Street  string `json:"street"`
+	City    string `json:"city"`
+	State   string `json:"state"`
+	ZipCode string `json:"zip_code"`
 }
 
 // QueryStores fetches the list of stores in storage.
@@ -68,7 +89,7 @@ func QueryStores(ctx context.Context, w http.ResponseWriter, r *http.Request) (i
 		return http.StatusInternalServerError, err
 	}
 
-	resp := &QueryStoresResp{Stores: make([]*Store, 0)}
+	var stores []*Store
 	q := datastore.NewQuery(StoreKind)
 	it := client.Run(ctx, q)
 	for {
@@ -80,11 +101,21 @@ func QueryStores(ctx context.Context, w http.ResponseWriter, r *http.Request) (i
 		if err != nil {
 			return http.StatusInternalServerError, fmt.Errorf("failed to query for all stores: %v", err)
 		}
-		resp.Stores = append(resp.Stores, &st)
+		stores = append(stores, &st)
 	}
 
-	if err := sortAndPruneNearby(resp, u.ZipCode); err != nil {
+	if err := sortAndPruneNearby(stores, u.ZipCode); err != nil {
 		return http.StatusInternalServerError, err
+	}
+
+	resp := &QueryStoresResp{}
+	for _, st := range stores {
+		addr, err := parseAddressComponents(st.Addr)
+		if err != nil {
+			log.Fatalf("failed to parse address %q: %v", st.Addr, err)
+			continue
+		}
+		resp.Stores = append(resp.Stores, &QueryStoreInfo{Store: st, Address: addr})
 	}
 
 	if err := EncodeResp(w, &resp); err != nil {
@@ -98,6 +129,20 @@ func validateQueryStoresReq(req QueryStoresReq) error {
 		return fmt.Errorf("missing user id")
 	}
 	return nil
+}
+
+func parseAddressComponents(address string) (*Address, error) {
+	if !validAddress.MatchString(address) {
+		return nil, fmt.Errorf("address does not follow standard format `<street>, <city>, <state> <zip code>`")
+	}
+	components := strings.Split(address, ", ")
+	stateAndZipCode := strings.Split(components[2], " ")
+	return &Address{
+		Street:  strings.TrimSpace(components[0]),
+		City:    strings.TrimSpace(components[1]),
+		State:   strings.TrimSpace(stateAndZipCode[0]),
+		ZipCode: strings.TrimSpace(stateAndZipCode[1]),
+	}, nil
 }
 
 // ******************************************
@@ -277,7 +322,7 @@ func vetStoreInfo(ctx context.Context, client *maps.Client, storeInfo *Store) er
 	return nil
 }
 
-func sortAndPruneNearby(resp *QueryStoresResp, zipCode string) error {
+func sortAndPruneNearby(stores []*Store, zipCode string) error {
 	// TODO: Order resp.Stores based on closest distance between user zip code and store address.
 	// 1. Compare zip codes between store and user. Filter stores that are in different state/region as user.
 	// 2. Pass in the store addresses and zipcode to Google Maps Distance Matrix API.
