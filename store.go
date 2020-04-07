@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"regexp"
+	"sort"
 	"strings"
 
 	"cloud.google.com/go/datastore"
@@ -46,6 +47,11 @@ type Store struct {
 // ******************************************
 // ** BEGIN QueryStores
 // ******************************************
+
+const (
+	// Maximum number of stores to return in QueryStores
+	queryStoresLimit = 10
+)
 
 type QueryStoresReq struct {
 	UserID string `json:"user_id"`
@@ -107,8 +113,13 @@ func QueryStores(ctx context.Context, w http.ResponseWriter, r *http.Request) (i
 		stores = append(stores, &st)
 	}
 
-	if err := sortAndPruneNearby(stores, u.ZipCode); err != nil {
+	// TODO: Use a heap instead of sort function to optimize getting the top
+	// `queryStoresLimit` stores from the stores list.
+	if err := sortStoresByDistance(stores, u.ZipCode); err != nil {
 		return http.StatusInternalServerError, err
+	}
+	if len(stores) > queryStoresLimit {
+		stores = stores[:queryStoresLimit]
 	}
 
 	resp := &QueryStoresResp{}
@@ -333,12 +344,16 @@ func vetStoreInfo(ctx context.Context, client *maps.Client, storeInfo *Store) er
 	return nil
 }
 
-func sortAndPruneNearby(stores []*Store, zipCode string) error {
-	// TODO: Order resp.Stores based on closest distance between user zip code
-	// and store address.
-	// 1. Compare zip codes between store and user. Filter stores that are in different state/region as user.
-	// 2. Pass in the store addresses and zipcode to Google Maps Distance Matrix API.
-	// 3. Order stores based on response.
-	// 4. Return the top 10.
+func sortStoresByDistance(stores []*Store, zipCode string) error {
+	coords := zipCodeToLatLong[zipCode]
+	lat := coords.Lat
+	lng := coords.Long
+	sort.Slice(stores, func(i, j int) bool {
+		return Distance(stores[i].Lat, stores[i].Long, lat, lng) <
+			Distance(stores[j].Lat, stores[j].Long, lat, lng)
+	})
+	if len(stores) > queryStoresLimit {
+		stores = stores[:queryStoresLimit]
+	}
 	return nil
 }

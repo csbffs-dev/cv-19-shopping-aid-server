@@ -35,11 +35,10 @@ func init() {
 	log.Println("successfully parsed zip code data")
 }
 
+// Distance calculates distance in miles between two points.
 // Copied from https://www.geodatasource.com/developers/go under LGPLv3 licensing.
 // See https://choosealicense.com/licenses/gpl-3.0.
-//
-// Calculates distance in miles between two points.
-func distance(lat1 float64, lng1 float64, lat2 float64, lng2 float64) float64 {
+func Distance(lat1 float64, lng1 float64, lat2 float64, lng2 float64) float64 {
 	const PI float64 = 3.141592653589793
 
 	radlat1 := float64(PI * lat1 / 180)
