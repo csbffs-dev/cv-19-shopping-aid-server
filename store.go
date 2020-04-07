@@ -48,11 +48,6 @@ type Store struct {
 // ** BEGIN QueryStores
 // ******************************************
 
-const (
-	// Maximum number of stores to return in QueryStores
-	queryStoresLimit = 10
-)
-
 type QueryStoresReq struct {
 	UserID string `json:"user_id"`
 }
@@ -113,13 +108,8 @@ func QueryStores(ctx context.Context, w http.ResponseWriter, r *http.Request) (i
 		stores = append(stores, &st)
 	}
 
-	// TODO: Use a heap instead of sort function to optimize getting the top
-	// `queryStoresLimit` stores from the stores list.
 	if err := sortStoresByDistance(stores, u.ZipCode); err != nil {
 		return http.StatusInternalServerError, err
-	}
-	if len(stores) > queryStoresLimit {
-		stores = stores[:queryStoresLimit]
 	}
 
 	resp := &QueryStoresResp{}
@@ -352,8 +342,5 @@ func sortStoresByDistance(stores []*Store, zipCode string) error {
 		return Distance(stores[i].Lat, stores[i].Long, lat, lng) <
 			Distance(stores[j].Lat, stores[j].Long, lat, lng)
 	})
-	if len(stores) > queryStoresLimit {
-		stores = stores[:queryStoresLimit]
-	}
 	return nil
 }
