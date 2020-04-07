@@ -52,9 +52,7 @@ type QueryStoresReq struct {
 	UserID string `json:"user_id"`
 }
 
-type QueryStoresResp struct {
-	Stores []*QueryStoreInfo `json:"stores"`
-}
+type QueryStoresResp []*QueryStoreInfo
 
 type QueryStoreInfo struct {
 	*Store
@@ -112,14 +110,14 @@ func QueryStores(ctx context.Context, w http.ResponseWriter, r *http.Request) (i
 		return http.StatusInternalServerError, err
 	}
 
-	resp := &QueryStoresResp{}
+	var resp QueryStoresResp
 	for _, st := range stores {
 		addr, err := parseAddressComponents(st.Addr)
 		if err != nil {
 			log.Fatalf("failed to parse address %q: %v", st.Addr, err)
 			continue
 		}
-		resp.Stores = append(resp.Stores, &QueryStoreInfo{Store: st, Address: addr})
+		resp = append(resp, &QueryStoreInfo{Store: st, Address: addr})
 	}
 
 	if err := EncodeResp(w, &resp); err != nil {
