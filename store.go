@@ -37,7 +37,7 @@ var (
 )
 
 type Store struct {
-	StoreID string  `datastore:"storeID" json:"store_id"`
+	StoreID string  `datastore:"storeID" json:"storeId"`
 	Name    string  `datastore:"name" json:"name"`
 	Addr    string  `datastore:"addr" json:"address"`
 	Lat     float64 `datastore:"lat" json:"latitude"`
