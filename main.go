@@ -5,20 +5,24 @@ import (
 	"log"
 	"net/http"
 	"os"
+
+	"github.com/gorilla/mux"
+	"github.com/rs/cors"
 )
 
 func main() {
-	// TODO: Use github.com/gorilla/mux for HTTP routing.
+	r := mux.NewRouter()
 	// TODO: Set up admin endpoints.
-	http.HandleFunc("/user/setup", userSetupHandler)
-	http.HandleFunc("/user/edit", userEditHandler)
-	http.HandleFunc("/user/delete", userDeleteHandler)
-	http.HandleFunc("/user/query", userQueryHandler)
-	http.HandleFunc("/item/query", itemQueryHandler)
-	http.HandleFunc("/store/query", storeQueryHandler)
-	http.HandleFunc("/store/add", storeAddHandler)
-	http.HandleFunc("/report/upload", reportUploadHandler)
-	http.HandleFunc("/receipt/parse", receiptParseHandler)
+	r.HandleFunc("/user/setup", userSetupHandler)
+	r.HandleFunc("/user/edit", userEditHandler)
+	r.HandleFunc("/user/delete", userDeleteHandler)
+	r.HandleFunc("/user/query", userQueryHandler)
+	r.HandleFunc("/item/query", itemQueryHandler)
+	r.HandleFunc("/store/query", storeQueryHandler)
+	r.HandleFunc("/store/add", storeAddHandler)
+	r.HandleFunc("/report/upload", reportUploadHandler)
+	r.HandleFunc("/receipt/parse", receiptParseHandler)
+	hr := cors.Default().Handler(r)
 
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -27,7 +31,7 @@ func main() {
 	}
 
 	log.Printf("Listening on port %s", port)
-	if err := http.ListenAndServe(":"+port, nil); err != nil {
+	if err := http.ListenAndServe(":"+port, hr); err != nil {
 		log.Fatal(err)
 	}
 }
@@ -64,7 +68,6 @@ func userDeleteHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), status)
 	}
 }
-
 
 func userQueryHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := context.Background()
