@@ -1,3 +1,4 @@
+# TODO: Set up HTTPS --> https://cloud.google.com/appengine/docs/standard/go/config/appref#handlers_element
 runtime: go112
 env_variables:
   PROJECT_ID: "cv19-shopping-aid-server"

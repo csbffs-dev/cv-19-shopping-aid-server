@@ -12,11 +12,11 @@ import (
 
 // StockReport represents the report entity. It is NOT stored as an entity in storage. Rather it is stored as a field of the item entity.
 type StockReport struct {
-	UserInfo     *User  `datastore:"user_info"`
-	StoreInfo    *Store `datastore:"store_info"`
-	TimestampSec int64  `datastore:"timestamp_sec"`
-	InStock      bool   `datastore:"in_stock"`
-	SeenCnt      int    `datastore:"seen_cnt"`
+	UsersInfo    []*User `datastore:"user_info"`
+	StoreInfo    *Store  `datastore:"store_info"`
+	TimestampSec int64   `datastore:"timestamp_sec"`
+	InStock      bool    `datastore:"in_stock"`
+	SeenCnt      int     `datastore:"seen_cnt"`
 }
 
 // ******************************************
@@ -60,64 +60,85 @@ func UploadReport(ctx context.Context, w http.ResponseWriter, r *http.Request) (
 	}
 	defer client.Close()
 
-	// For each item in inStock and outStock, update item using name as key from storage.
-	// If item doesn't exist, create item in storage.
-	// TODO: Do not create an entirely new stock report if there is already
-	// 		 a stock report in storage with the same StoreInfo value, recent Timestamp value,
-	//		 and same inStock value. Just update the Timestamp and SeenCnt.
-	now := time.Now().Unix()
-	for _, itemName := range req.InStock {
-		if _, err := client.RunInTransaction(ctx, func(tx *datastore.Transaction) error {
-			var item Item
-			key := datastore.NameKey(ItemKind, itemName, nil)
-			if err := client.Get(ctx, key, &item); err != nil {
-				if err != datastore.ErrNoSuchEntity {
-					return fmt.Errorf("failed to fetch item %q from storage: %v", itemName, err)
-				}
-				item.Name = itemName
-				item.StockReports = make([]*StockReport, 0)
-			}
-			item.StockReports = append(item.StockReports, &StockReport{
-				UserInfo:     user,
-				StoreInfo:    store,
-				TimestampSec: now,
-				InStock:      true,
-			})
-			if _, err := client.Put(ctx, key, &item); err != nil {
-				return fmt.Errorf("failed to update item %q in storage: %v", itemName, err)
-			}
-			return nil
-		}); err != nil {
-			return http.StatusInternalServerError, err
-		}
+	if err := handleUploadToItems(ctx, client, store, user, req.InStock, true); err != nil {
+		return http.StatusInternalServerError, err
 	}
-	for _, itemName := range req.OutStock {
-		if _, err := client.RunInTransaction(ctx, func(tx *datastore.Transaction) error {
-			var item Item
-			key := datastore.NameKey(ItemKind, itemName, nil)
-			if err := client.Get(ctx, key, &item); err != nil {
-				if err != datastore.ErrNoSuchEntity {
-					return fmt.Errorf("failed to fetch item %q from storage: %v", itemName, err)
-				}
-				item.Name = itemName
-				item.StockReports = make([]*StockReport, 0)
-			}
-			item.StockReports = append(item.StockReports, &StockReport{
-				UserInfo:     user,
-				StoreInfo:    store,
-				TimestampSec: now,
-				InStock:      false,
-			})
-			if _, err := client.Put(ctx, key, &item); err != nil {
-				return fmt.Errorf("failed to update item %q in storage: %v", itemName, err)
-			}
-			return nil
-		}); err != nil {
-			return http.StatusInternalServerError, err
-		}
+
+	if err := handleUploadToItems(ctx, client, store, user, req.OutStock, false); err != nil {
+		return http.StatusInternalServerError, err
 	}
 
 	return http.StatusOK, nil
+}
+
+func handleUploadToItems(ctx context.Context, client *datastore.Client, store *Store, user *User, itemNames []string, checkInStock bool) error {
+	now := time.Now().Unix()
+	errFreq := 0
+	var errResult error
+
+	// For each item in itemNames, update item using name as key from storage. If item doesn't exist, create item
+	// in storage.
+	for _, itemName := range itemNames {
+		// RunInTransaction guarantees that the get-then-put datastore operation is atomic.
+		if _, err := client.RunInTransaction(ctx, func(tx *datastore.Transaction) error {
+			var item Item
+			key := datastore.NameKey(ItemKind, itemName, nil)
+			if err := client.Get(ctx, key, &item); err != nil {
+				if err != datastore.ErrNoSuchEntity {
+					return fmt.Errorf("failed to fetch item %q from storage: %v", itemName, err)
+				}
+				item.Name = itemName
+				item.StockReports = make([]*StockReport, 0)
+			}
+			// Iterate through the item's stock reports to see if there is already one for the same
+			// store. If so, just increment the seen count and timestamp rather than creating an entirely new report.
+			for _, sr := range item.StockReports {
+				if sr.StoreInfo.StoreID == store.StoreID && sr.InStock == checkInStock {
+					// However, if it's the same user reporting it, do not increment the seenCnt.
+					userAlreadyReported := false
+					for _, u := range sr.UsersInfo {
+						if u.UserID == user.UserID {
+							userAlreadyReported = true
+							break
+						}
+					}
+					if !userAlreadyReported {
+						sr.SeenCnt++
+						sr.UsersInfo = append(sr.UsersInfo, &User{UserID: user.UserID, TimestampSec: now})
+					}
+					sr.TimestampSec = now
+					if _, err := client.Put(ctx, key, &item); err != nil {
+						return fmt.Errorf("failed to update item %q in storage with an existing stock report %v: %v", itemName, sr, err)
+					}
+					return nil
+				}
+			}
+			sr := &StockReport{
+				UsersInfo:    []*User{{UserID: user.UserID, TimestampSec: now}},
+				StoreInfo:    store,
+				TimestampSec: now,
+				InStock:      checkInStock,
+				SeenCnt:      1,
+			}
+			item.StockReports = append(item.StockReports, sr)
+			if _, err := client.Put(ctx, key, &item); err != nil {
+				return fmt.Errorf("failed to update item %q in storage with new stock report %v: %v", itemName, sr, err)
+			}
+			return nil
+		}); err != nil {
+			// Rather than returning an error once a transaction fails, try to run all transactions for items
+			// and report the first error and number of errors at the end.
+			errFreq++
+			if errResult == nil {
+				errResult = err
+			}
+		}
+	}
+
+	if errResult != nil {
+		return fmt.Errorf("Encountered %d failures, recorded the first one: %v", errFreq, errResult)
+	}
+	return nil
 }
 
 func cleanAndValidateUploadReportReq(req *UploadReportReq) error {
