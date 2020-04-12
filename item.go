@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"sort"
 	"time"
 
 	"cloud.google.com/go/datastore"
@@ -11,7 +12,8 @@ import (
 )
 
 const (
-	DateAndTimeSeenLayout = "Mon Jan 2 15:04:05" // See https://golang.org/pkg/time/#Time.Format
+	secondsToHour = 3600
+	secondsToDay  = 3600 * 24
 )
 
 type Item struct {
@@ -27,17 +29,18 @@ type QueryItemsReq struct {
 	UserID string `json:"user_id"`
 }
 
-type QueryItemsResp struct {
-	Items []*ItemInfo `json:"items"`
-}
+type QueryItemsResp []*ItemInfo
 
-// TODO: Change DateAndTimeSeen to HoursAgo or DaysAgo
 type ItemInfo struct {
-	ItemName        string `json:"item_name"`
-	DateAndTimeSeen string `json:"date_and_time_seen"`
-	StoreName       string `json:"store_name"`
-	StoreAddr       string `json:"store_address"`
-	InStock         bool   `json:"in_stock"`
+	ItemName  string  `json:"item_name"`
+	DaysAgo   int     `json:"days_ago"`
+	HoursAgo  int     `json:"hours_ago"`
+	StoreName string  `json:"store_name"`
+	StoreAddr string  `json:"store_address"`
+	StoreLat  float64 `json:"store_latitude"`
+	StoreLng  float64 `json:"store_longitude"`
+	InStock   bool    `json:"in_stock"`
+	SeenCnt   int     `json:"seen_count"`
 }
 
 // QueryItems fetches the list of items in storage.
@@ -51,7 +54,7 @@ func QueryItems(ctx context.Context, w http.ResponseWriter, r *http.Request) (in
 		return http.StatusBadRequest, err
 	}
 
-	_, ok, err := GetUserInStorage(ctx, req.UserID)
+	u, ok, err := GetUserInStorage(ctx, req.UserID)
 	if err != nil {
 		return http.StatusInternalServerError, fmt.Errorf("failed to check user creds: %v", err)
 	}
@@ -63,8 +66,9 @@ func QueryItems(ctx context.Context, w http.ResponseWriter, r *http.Request) (in
 	if err != nil {
 		return http.StatusInternalServerError, err
 	}
+	defer client.Close()
 
-	resp := &QueryItemsResp{Items: make([]*ItemInfo, 0)}
+	var resp QueryItemsResp
 	q := datastore.NewQuery(ItemKind)
 	it := client.Run(ctx, q)
 	for {
@@ -76,8 +80,13 @@ func QueryItems(ctx context.Context, w http.ResponseWriter, r *http.Request) (in
 		if err != nil {
 			return http.StatusInternalServerError, fmt.Errorf("failed to query for all items: %v", err)
 		}
-		// TODO: Filter response based on nearness to user's zipcode.
-		parseItemIntoResp(&t, resp)
+		for _, itemInfo := range parseItem(&t) {
+			resp = append(resp, itemInfo)
+		}
+	}
+
+	if err := sortItems(resp, u.ZipCode); err != nil {
+		return http.StatusInternalServerError, err
 	}
 
 	if err := EncodeResp(w, &resp); err != nil {
@@ -97,15 +106,40 @@ func validateQueryItemsReq(req QueryItemsReq) error {
 // ** END QueryItems
 // ******************************************
 
-func parseItemIntoResp(item *Item, resp *QueryItemsResp) {
+func parseItem(item *Item) []*ItemInfo {
+	var res []*ItemInfo
 	for _, stockReport := range item.StockReports {
+		secondsAgo := int(time.Now().Unix() - stockReport.TimestampSec)
 		itemInfo := &ItemInfo{
-			ItemName:        item.Name,
-			DateAndTimeSeen: time.Unix(stockReport.TimestampSec, 0).Format(DateAndTimeSeenLayout),
-			StoreName:       stockReport.StoreInfo.Name,
-			StoreAddr:       stockReport.StoreInfo.Addr,
-			InStock:         stockReport.InStock,
+			ItemName:  item.Name,
+			DaysAgo:   secondsAgo / secondsToDay,
+			HoursAgo:  secondsAgo / secondsToHour,
+			StoreName: stockReport.StoreInfo.Name,
+			StoreAddr: stockReport.StoreInfo.Addr,
+			StoreLat:  stockReport.StoreInfo.Lat,
+			StoreLng:  stockReport.StoreInfo.Long,
+			InStock:   stockReport.InStock,
+			SeenCnt:   stockReport.SeenCnt,
 		}
-		resp.Items = append(resp.Items, itemInfo)
+		res = append(res, itemInfo)
 	}
+	return res
+}
+
+// Sort ItemInfo array by following priority.
+// 1. Closest distance from store to user zip code.
+// 2. Recent timestamp (time when item was seen at store)
+func sortItems(resp QueryItemsResp, zipCode string) error {
+	coords := zipCodeToLatLong[zipCode]
+	lat := coords.Lat
+	lng := coords.Long
+	sort.Slice(resp, func(i, j int) bool {
+		d1 := Distance(resp[i].StoreLat, resp[i].StoreLng, lat, lng)
+		d2 := Distance(resp[j].StoreLat, resp[j].StoreLng, lat, lng)
+		if d1 == d2 {
+			return resp[i].HoursAgo < resp[j].HoursAgo
+		}
+		return d1 < d2
+	})
+	return nil
 }
