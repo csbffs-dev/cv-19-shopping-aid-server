@@ -23,7 +23,6 @@ adzuki beans:adzuki,beans
 agar:agar
 agar agar:agar,agar
 agave:agave
-agave bectar:agave,bectar
 agave nectar:agave,nectar
 agave syrup:agave,syrup
 agricole:agricole

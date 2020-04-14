@@ -1,10 +1,14 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"fmt"
+	"log"
 	"net/http"
+	"os"
 	"sort"
+	"strings"
 	"time"
 
 	"cloud.google.com/go/datastore"
@@ -20,6 +24,91 @@ type Item struct {
 	Name         string         `datastore:"name"`
 	StockReports []*StockReport `datastore:"stock_report"`
 }
+
+type Tokens []string
+
+var itemNames []string
+var itemTokens []Tokens
+
+func init() {
+	f, err := os.Open("./assets/itemsAndTokens.txt")
+	if err != nil {
+		log.Fatalf("failed to open items data file: %v", err)
+	}
+	scanner := bufio.NewScanner(f)
+	scanner.Split(bufio.ScanLines)
+
+	// Keep ordering of item token data
+	for scanner.Scan() {
+		data := strings.Split(scanner.Text(), ":")
+		itemNames = append(itemNames, data[0])
+		itemTokens = append(itemTokens, strings.Split(data[1], ","))
+	}
+	log.Println("successfully parsed item token data")
+}
+
+// ******************************************
+// ** Begin QueryItemTokens
+// ******************************************
+
+type QueryItemTokensReq struct {
+	UserID string `json:"user_id"`
+}
+
+type QueryItemTokensResp []*ItemTokenInfo
+
+type ItemTokenInfo struct {
+	Name   string   `json:"name"`
+	Tokens []string `json:"tokens"`
+}
+
+func QueryItemTokens(ctx context.Context, w http.ResponseWriter, r *http.Request) (int, error) {
+	var req QueryItemTokensReq
+	if err := DecodeReq(r.Body, &req); err != nil {
+		return http.StatusBadRequest, err
+	}
+
+	if err := validateQueryItemTokensReq(&req); err != nil {
+		return http.StatusBadRequest, err
+	}
+
+	_, ok, err := GetUserInStorage(ctx, req.UserID)
+	if err != nil {
+		return http.StatusInternalServerError, fmt.Errorf("failed to check user creds: %v", err)
+	}
+	if !ok {
+		return http.StatusForbidden, fmt.Errorf("user id is invalid: %q", req.UserID)
+	}
+
+	client, err := StorageClient(ctx)
+	if err != nil {
+		return http.StatusInternalServerError, err
+	}
+	defer client.Close()
+
+	var resp QueryItemTokensResp
+	for i := 0; i < len(itemNames); i++ {
+		resp = append(resp, &ItemTokenInfo{
+			Name:   itemNames[i],
+			Tokens: itemTokens[i],
+		})
+	}
+	if err := EncodeResp(w, &resp); err != nil {
+		return http.StatusInternalServerError, err
+	}
+	return http.StatusOK, nil
+}
+
+func validateQueryItemTokensReq(req *QueryItemTokensReq) error {
+	if req.UserID == "" {
+		return fmt.Errorf("missing user id")
+	}
+	return nil
+}
+
+// ******************************************
+// ** END QueryItemTokens
+// ******************************************
 
 // ******************************************
 // ** Begin QueryItems

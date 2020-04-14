@@ -18,6 +18,7 @@ func main() {
 	r.HandleFunc("/user/delete", userDeleteHandler)
 	r.HandleFunc("/user/query", userQueryHandler)
 	r.HandleFunc("/item/query", itemQueryHandler)
+	r.HandleFunc("/item/tokens/query", itemTokensQueryHandler)
 	r.HandleFunc("/store/query", storeQueryHandler)
 	r.HandleFunc("/store/add", storeAddHandler)
 	r.HandleFunc("/report/upload", reportUploadHandler)
@@ -87,6 +88,18 @@ func itemQueryHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	status, err := QueryItems(ctx, w, r)
+	if err != nil {
+		http.Error(w, err.Error(), status)
+	}
+}
+
+func itemTokensQueryHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := context.Background()
+	if r.Method != "POST" {
+		http.NotFound(w, r)
+		return
+	}
+	status, err := QueryItemTokens(ctx, w, r)
 	if err != nil {
 		http.Error(w, err.Error(), status)
 	}
