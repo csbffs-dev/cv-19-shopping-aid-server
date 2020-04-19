@@ -52,7 +52,7 @@ func init() {
 // ******************************************
 
 type QueryItemTokensReq struct {
-	UserID string `json:"userID"`
+	UserID string `json:"user_id"`
 }
 
 type QueryItemTokensResp []*ItemTokenInfo
