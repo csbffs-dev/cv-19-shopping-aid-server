@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	"cloud.google.com/go/datastore"
-	"github.com/google/uuid"
 	"google.golang.org/api/iterator"
 	"googlemaps.github.io/maps"
 )
@@ -188,8 +187,6 @@ func AddStore(ctx context.Context, w http.ResponseWriter, r *http.Request) (int,
 		Addr: req.AddrText,
 	}
 
-	// TODO: Prevent dupes. Check that store does not already exist in storage.
-
 	client, err := MapsClient()
 	if err != nil {
 		return http.StatusInternalServerError, err
@@ -199,14 +196,8 @@ func AddStore(ctx context.Context, w http.ResponseWriter, r *http.Request) (int,
 		return http.StatusBadRequest, err
 	}
 
-	uid, err := uuid.NewRandom()
-	if err != nil {
-		return http.StatusInternalServerError, fmt.Errorf("failed to generate store id: %v", err)
-	}
-	st.StoreID = uid.String()
-
-	if err := createStoreInStorage(ctx, st); err != nil {
-		return http.StatusInternalServerError, err
+	if status, err := createStoreInStorage(ctx, st); err != nil {
+		return status, err
 	}
 
 	resp := &AddStoreResp{
@@ -255,19 +246,34 @@ func GetStoreInStorage(ctx context.Context, storeID string) (*Store, error) {
 	return &st, nil
 }
 
-func createStoreInStorage(ctx context.Context, st *Store) error {
+func createStoreInStorage(ctx context.Context, st *Store) (int, error) {
 	client, err := StorageClient(ctx)
 	if err != nil {
-		return err
+		return http.StatusInternalServerError, err
 	}
 	defer client.Close()
 
 	key := datastore.NameKey(StoreKind, st.StoreID, nil)
-	_, err = client.Put(ctx, key, st)
-	if err != nil {
-		return fmt.Errorf("failed to add store in storage: %v", err)
+
+	// Fetch the store from storage to see if it already exists. We could just put the store
+	// in storage and that would prevent duplicates but read operations are much
+	// cheaper than write operations in Datastore. This raises the bar in case users
+	// try to add the same store repeatedly.
+	var tmp Store
+	err = client.Get(ctx, key, &tmp)
+	if err == nil {
+		// Check to see if the store entity in storage is equivalent. If not, the entity
+		// needs to be updated.
+		if tmp.Name == st.Name && tmp.Addr == st.Addr {
+			return http.StatusBadRequest, fmt.Errorf("store already exists")
+		}
+	} else if err != datastore.ErrNoSuchEntity {
+		return http.StatusInternalServerError, fmt.Errorf("failed to look up store in storage: %v", err)
 	}
-	return nil
+	if _, err = client.Put(ctx, key, st); err != nil {
+		return http.StatusInternalServerError, fmt.Errorf("failed to add store in storage: %v", err)
+	}
+	return 0, nil
 }
 
 // vetStoreInfo vets the storeInfo before adding it to Storage.
@@ -307,13 +313,14 @@ func vetStoreInfo(ctx context.Context, client *maps.Client, storeInfo *Store) er
 		return fmt.Errorf(errMsg)
 	}
 
+	placeID := findPlaceResp.Candidates[0].PlaceID
 	vettedName := findPlaceResp.Candidates[0].Name
 	vettedAddr := strings.TrimSuffix(findPlaceResp.Candidates[0].FormattedAddress, ", United States")
 	lat := findPlaceResp.Candidates[0].Geometry.Location.Lat
 	lng := findPlaceResp.Candidates[0].Geometry.Location.Lng
 
 	detailsReq := &maps.PlaceDetailsRequest{
-		PlaceID: findPlaceResp.Candidates[0].PlaceID,
+		PlaceID: placeID,
 		Fields:  []maps.PlaceDetailsFieldMask{maps.PlaceDetailsFieldMaskTypes},
 	}
 	detailsResp, err := client.PlaceDetails(ctx, detailsReq)
@@ -325,6 +332,7 @@ func vetStoreInfo(ctx context.Context, client *maps.Client, storeInfo *Store) er
 	}
 
 	log.Printf("store `%q %q` vetted and changed to `%q %q (%f, %f)`", storeInfo.Name, storeInfo.Addr, vettedName, vettedAddr, lat, lng)
+	storeInfo.StoreID = placeID
 	storeInfo.Name = vettedName
 	storeInfo.Addr = vettedAddr
 	storeInfo.Lat = lat
