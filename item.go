@@ -122,14 +122,14 @@ type QueryItemsReq struct {
 type QueryItemsResp []*ItemInfo
 
 type ItemInfo struct {
-	DaysAgo   int     `json:"days_ago"`
-	HoursAgo  int     `json:"hours_ago"`
-	StoreName string  `json:"store_name"`
-	StoreAddr string  `json:"store_address"`
-	StoreLat  float64 `json:"store_latitude"`
-	StoreLng  float64 `json:"store_longitude"`
-	InStock   bool    `json:"in_stock"`
-	SeenCnt   int     `json:"seen_count"`
+	DaysAgo   int     `json:"daysAgo"`
+	HoursAgo  int     `json:"hoursAgo"`
+	StoreName string  `json:"storeName"`
+	StoreAddr string  `json:"storeAddress"`
+	StoreLat  float64 `json:"storeLat"`
+	StoreLng  float64 `json:"storeLong"`
+	InStock   bool    `json:"inStock"`
+	SeenCnt   int     `json:"seenCount"`
 }
 
 // QueryItems fetches the list of items in storage.
@@ -157,7 +157,7 @@ func QueryItems(ctx context.Context, w http.ResponseWriter, r *http.Request) (in
 	}
 	defer client.Close()
 
-	var resp QueryItemsResp
+	resp := make(QueryItemsResp, 0)
 	q := datastore.NewQuery(ItemKind).Filter("name =", req.ItemName)
 	it := client.Run(ctx, q)
 	for {
