@@ -115,13 +115,13 @@ func validateQueryItemTokensReq(req *QueryItemTokensReq) error {
 // ******************************************
 
 type QueryItemsReq struct {
-	UserID string `json:"user_id"`
+	UserID   string `json:"user_id"`
+	ItemName string `json:"item_name"`
 }
 
 type QueryItemsResp []*ItemInfo
 
 type ItemInfo struct {
-	ItemName  string  `json:"item_name"`
 	DaysAgo   int     `json:"days_ago"`
 	HoursAgo  int     `json:"hours_ago"`
 	StoreName string  `json:"store_name"`
@@ -139,7 +139,7 @@ func QueryItems(ctx context.Context, w http.ResponseWriter, r *http.Request) (in
 		return http.StatusBadRequest, err
 	}
 
-	if err := validateQueryItemsReq(req); err != nil {
+	if err := cleanAndValidateQueryItemsReq(&req); err != nil {
 		return http.StatusBadRequest, err
 	}
 
@@ -158,7 +158,7 @@ func QueryItems(ctx context.Context, w http.ResponseWriter, r *http.Request) (in
 	defer client.Close()
 
 	var resp QueryItemsResp
-	q := datastore.NewQuery(ItemKind)
+	q := datastore.NewQuery(ItemKind).Filter("name =", req.ItemName)
 	it := client.Run(ctx, q)
 	for {
 		var t Item
@@ -167,7 +167,7 @@ func QueryItems(ctx context.Context, w http.ResponseWriter, r *http.Request) (in
 			break
 		}
 		if err != nil {
-			return http.StatusInternalServerError, fmt.Errorf("failed to query for all items: %v", err)
+			return http.StatusInternalServerError, fmt.Errorf("failed to query items: %v", err)
 		}
 		for _, itemInfo := range parseItem(&t) {
 			resp = append(resp, itemInfo)
@@ -184,9 +184,13 @@ func QueryItems(ctx context.Context, w http.ResponseWriter, r *http.Request) (in
 	return http.StatusOK, nil
 }
 
-func validateQueryItemsReq(req QueryItemsReq) error {
+func cleanAndValidateQueryItemsReq(req *QueryItemsReq) error {
+	req.ItemName = strings.ToLower(req.ItemName)
 	if req.UserID == "" {
 		return fmt.Errorf("missing user id")
+	}
+	if req.ItemName == "" {
+		return fmt.Errorf("missing item name")
 	}
 	return nil
 }
@@ -200,7 +204,6 @@ func parseItem(item *Item) []*ItemInfo {
 	for _, stockReport := range item.StockReports {
 		secondsAgo := int(time.Now().Unix() - stockReport.TimestampSec)
 		itemInfo := &ItemInfo{
-			ItemName:  item.Name,
 			DaysAgo:   secondsAgo / secondsToDay,
 			HoursAgo:  secondsAgo / secondsToHour,
 			StoreName: stockReport.StoreInfo.Name,
