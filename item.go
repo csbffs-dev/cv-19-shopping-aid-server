@@ -20,6 +20,8 @@ const (
 	secondsToDay  = 3600 * 24
 )
 
+// TODO: Clean up StockReport entities in Item storage that are >7 days old.
+
 type Item struct {
 	Name         string         `datastore:"name"`
 	StockReports []*StockReport `datastore:"stock_report"`

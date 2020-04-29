@@ -160,6 +160,7 @@ type AddStoreReq struct {
 	AddrText string `json:"address"`
 }
 
+// TODO: Return vetted store name and address in response so that client can get it and show it in UI.
 type AddStoreResp struct {
 	StoreID string `json:"store_id"`
 }
